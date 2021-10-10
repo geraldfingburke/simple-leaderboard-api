@@ -1,4 +1,7 @@
 <?php
+header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Access-Control-Allow-Origin: *");
+header('content-type: application/json; charset=utf-8');
 
 function get_pdo() {
   require "dbConfig.php";
@@ -16,13 +19,13 @@ function record_new_user($email, $gameName) {
   //Checks for an existing gameID
   $stmt = $dbh->prepare("SELECT gameID FROM Users WHERE email = :email_value AND gameName = :gameName_value");
   $stmt->bindValue(":email_value", $email, PDO::PARAM_STR);
-  $stmt->bindValue(":gameName_value", $gameNem, PDO::PARAM_STR);
+  $stmt->bindValue(":gameName_value", $gameName, PDO::PARAM_STR);
   $stmt->execute();
   
   $results = $stmt->fetchAll();
   
-  if(count($results) == 1) {
-    echo("GameID Exists");
+  if(count($results) > 0) {
+    echo json_encode($results[0]["gameID"]);
     die();
   }
   
@@ -30,6 +33,9 @@ function record_new_user($email, $gameName) {
   $stmt->bindValue(":email_value", $email, PDO::PARAM_STR);
   $stmt->bindValue(":gameName_value", $gameName, PDO::PARAM_STR);
   $stmt->execute();
+  
+  echo json_encode($dbh->lastInsertId());
+  die();
 }
 
 function record_new_score($gameID, $score, $userName) {
@@ -91,6 +97,7 @@ function get_user_scores($gameID, $userName, $count) {
   return json_encode($json);
 }
 
+
 if ($_GET["action"] == "newScore") {
   if ($_GET["gameID"] && $_GET["score"] && $_GET["userName"]) {
     record_new_score($_GET["gameID"], $_GET["score"], $_GET["userName"]);
@@ -100,6 +107,8 @@ if ($_GET["action"] == "newScore") {
   echo "Invalid Params";
   die();
 }
+
+
 
 if ($_GET["action"] == "topScores") {
   if ($_GET["count"] && $_GET["gameID"]) {
@@ -114,6 +123,8 @@ if ($_GET["action"] == "topScores") {
   echo "Invalid params";
   die();
 }
+
+
 
 if ($_GET["action"] == "userScores") {
   if (!$_GET["userName"] || !$_GET["gameID"]) {
@@ -130,14 +141,19 @@ if ($_GET["action"] == "userScores") {
   die();
 }
 
-if ($_POST("action"] == "addUser") {
-  if (!$_POST["email"] || !$_POST["gameName"]) {
+
+
+$json = file_get_contents('php://input');
+
+$data = json_decode($json, true);
+
+if ($data["action"] == "addUser") {
+  if (!$data["email"] || !$data["gameName"]) {
     echo "Invalid params";
     die();
   }
-  record_new_user($_POST["email"], $_POST["gameName"]);
+  record_new_user($data["email"], $data["gameName"]);
   echo "Success";
-  die();
-}
 
+}
 ?>

@@ -10,6 +10,28 @@ function get_pdo() {
   return new PDO($dsn, $user, $pass);
 }
 
+function record_new_user($email, $gameName) {
+  $dbh = get_pdo();
+  
+  //Checks for an existing gameID
+  $stmt = $dbh->prepare("SELECT gameID FROM Users WHERE email = :email_value AND gameName = :gameName_value");
+  $stmt->bindValue(":email_value", $email, PDO::PARAM_STR);
+  $stmt->bindValue(":gameName_value", $gameNem, PDO::PARAM_STR);
+  $stmt->execute();
+  
+  $results = $stmt->fetchAll();
+  
+  if(count($results) == 0) {
+    echo("GameID Exists");
+    die();
+  }
+  
+  $stmt = $dbh->prepare("INSERT INTO Users (email, gameName) VALUES(:email_value, :gameName_value)");
+  $stmt->bindValue(":email_value", $email, PDO::PARAM_STR);
+  $stmt->bindValue(":gameName_value", $gameName, PDO::PARAM_STR);
+  $stmt->execute();
+}
+
 function record_new_score($gameID, $score, $userName) {
   $dbh = get_pdo();
   
@@ -107,4 +129,14 @@ if ($_GET["action"] == "userScores") {
   echo $json;
   die();
 }
+
+if ($_POST("action"] == "addUser") {
+  if (!$_POST["email"] || !$_POST["gameName"]) {
+    echo "Invalid params";
+    die();
+  }
+  record_new_user($_POST["email"], $_POST["gameName"]);
+  echo "Success";
+}
+
 ?>

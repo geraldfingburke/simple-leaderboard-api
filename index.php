@@ -21,7 +21,7 @@ function record_new_user($email, $gameName) {
   
   $results = $stmt->fetchAll();
   
-  if(count($results) == 0) {
+  if(count($results) == 1) {
     echo("GameID Exists");
     die();
   }
@@ -137,6 +137,7 @@ if ($_POST("action"] == "addUser") {
   }
   record_new_user($_POST["email"], $_POST["gameName"]);
   echo "Success";
+  die();
 }
 
 ?>

@@ -138,4 +138,5 @@ if ($_POST("action"] == "addUser") {
   record_new_user($_POST["email"], $_POST["gameName"]);
   echo "Success";
 }
+
 ?>

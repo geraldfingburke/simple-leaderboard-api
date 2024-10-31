@@ -31,7 +31,7 @@ A complete request to add a new score should look something like this
 Verbose, isn't it? I promised a simple api, not a short one.
 
 ### topScores
-This will look like `https://indiealchemy.com/apis/simple-leaderboard/?action=topScores`
+This will look like `https://geraldburke.com/apis/simple-leaderboard/?action=topScores`
 
 This is how you will read values from the leaderboard.
 

@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS simple_leaderboard.users (
     game_id SERIAL PRIMARY KEY,
     email VARCHAR(255) NOT NULL,
     game_name VARCHAR(255) NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_leaderboard_users_email_game_name UNIQUE (email, game_name)
 );
 
 CREATE TABLE IF NOT EXISTS simple_leaderboard.scores (

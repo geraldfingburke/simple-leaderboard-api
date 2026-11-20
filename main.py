@@ -10,7 +10,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 pool: ConnectionPool | None = None
 
 
-def init_schema() -> None:
+def initialize_database_schema() -> None:
     if not pool:
         return
     with pool.connection() as conn:
@@ -43,12 +43,107 @@ def init_schema() -> None:
         conn.commit()
 
 
+def game_id_exists(game_id: int) -> bool:
+    if not pool:
+        return False
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT game_id FROM simple_leaderboard.users WHERE game_id = %s;",
+                (game_id,),
+            )
+            return cur.fetchone() is not None
+
+
+def record_new_user(email: str, game_name: str) -> int:
+    assert pool is not None
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT game_id
+                FROM simple_leaderboard.users
+                WHERE email = %s AND game_name = %s;
+                """,
+                (email, game_name),
+            )
+            existing = cur.fetchone()
+            if existing:
+                return int(existing[0])
+
+            cur.execute(
+                """
+                INSERT INTO simple_leaderboard.users (email, game_name)
+                VALUES (%s, %s)
+                RETURNING game_id;
+                """,
+                (email, game_name),
+            )
+            created = cur.fetchone()
+        conn.commit()
+    return int(created[0]) if created else 1
+
+
+def record_new_score(game_id: int, score: int, user_name: str) -> Response:
+    assert pool is not None
+    if not game_id_exists(game_id):
+        return PlainTextResponse("Invalid GameID")
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO simple_leaderboard.scores (game_id, score, user_name)
+                VALUES (%s, %s, %s);
+                """,
+                (game_id, score, user_name),
+            )
+        conn.commit()
+    return PlainTextResponse("Success")
+
+
+def get_top_scores(game_id: int, count: int = 10) -> list[dict[str, int | str]]:
+    assert pool is not None
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT user_name, score
+                FROM simple_leaderboard.scores
+                WHERE game_id = %s
+                ORDER BY score DESC
+                LIMIT %s;
+                """,
+                (game_id, count),
+            )
+            rows = cur.fetchall()
+    return [{"userName": row[0], "score": row[1]} for row in rows]
+
+
+def get_user_scores(game_id: int, user_name: str, count: int = 10) -> list[dict[str, int]]:
+    assert pool is not None
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT user_name, score
+                FROM simple_leaderboard.scores
+                WHERE game_id = %s AND user_name = %s
+                ORDER BY score DESC
+                LIMIT %s;
+                """,
+                (game_id, user_name, count),
+            )
+            rows = cur.fetchall()
+    return [{row[0]: row[1]} for row in rows]
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global pool
     if DATABASE_URL:
         pool = ConnectionPool(conninfo=DATABASE_URL, min_size=1, max_size=10, open=True)
-        init_schema()
+        initialize_database_schema()
     yield
     if pool:
         pool.close()
@@ -69,134 +164,53 @@ app.add_middleware(
 @app.api_route("/apis/simple-leaderboard-api/", methods=["GET", "POST"])
 @app.api_route("/apis/simple-leaderboard", methods=["GET", "POST"])
 @app.api_route("/apis/simple-leaderboard/", methods=["GET", "POST"])
-async def leaderboard_endpoint(request: Request) -> Response:
+async def handle_leaderboard_request(request: Request) -> Response:
     if not pool:
         return PlainTextResponse("Database connection unavailable", status_code=500)
 
-    qp = request.query_params
-    action = qp.get("action")
-    game_id_raw = qp.get("gameID")
-    score_raw = qp.get("score")
-    user_name = qp.get("userName")
-    count_raw = qp.get("count")
+    query_params = request.query_params
+    action = query_params.get("action")
+    game_id_param = query_params.get("gameID")
+    score_param = query_params.get("score")
+    user_name = query_params.get("userName")
+    count_param = query_params.get("count")
 
-    # 1. newScore
     if action == "newScore":
-        if game_id_raw and score_raw and user_name:
-            try:
-                game_id = int(game_id_raw)
-                score_val = int(score_raw)
-            except ValueError:
-                return PlainTextResponse("Invalid Params")
+        if not (game_id_param and score_param and user_name):
+            return PlainTextResponse("Invalid Params")
+        try:
+            return record_new_score(int(game_id_param), int(score_param), user_name)
+        except ValueError:
+            return PlainTextResponse("Invalid Params")
 
-            with pool.connection() as conn:
-                with conn.cursor() as cur:
-                    # Prevents users from adding scores for a gameID that doesn't 'exist'
-                    cur.execute(
-                        "SELECT game_id FROM simple_leaderboard.users WHERE game_id = %s;",
-                        (game_id,),
-                    )
-                    if not cur.fetchone():
-                        return PlainTextResponse("Invalid GameID")
-
-                    cur.execute(
-                        """
-                        INSERT INTO simple_leaderboard.scores (game_id, score, user_name)
-                        VALUES (%s, %s, %s);
-                        """,
-                        (game_id, score_val, user_name),
-                    )
-                conn.commit()
-            return PlainTextResponse("Success")
-        return PlainTextResponse("Invalid Params")
-
-    # 2. topScores
     if action == "topScores":
-        if not game_id_raw:
+        if not game_id_param:
             return PlainTextResponse("Invalid params")
         try:
-            game_id = int(game_id_raw)
-            limit = int(count_raw) if count_raw else 10
+            limit = int(count_param) if count_param else 10
+            return JSONResponse(get_top_scores(int(game_id_param), limit))
         except ValueError:
             return PlainTextResponse("Invalid params")
 
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT user_name, score
-                    FROM simple_leaderboard.scores
-                    WHERE game_id = %s
-                    ORDER BY score DESC
-                    LIMIT %s;
-                    """,
-                    (game_id, limit),
-                )
-                rows = cur.fetchall()
-        return JSONResponse([{"userName": r[0], "score": r[1]} for r in rows])
-
-    # 3. userScores
     if action == "userScores":
-        if not user_name or not game_id_raw:
+        if not (user_name and game_id_param):
             return PlainTextResponse("Invalid params")
         try:
-            game_id = int(game_id_raw)
-            limit = int(count_raw) if count_raw else 10
+            limit = int(count_param) if count_param else 10
+            return JSONResponse(get_user_scores(int(game_id_param), user_name, limit))
         except ValueError:
             return PlainTextResponse("Invalid params")
 
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT user_name, score
-                    FROM simple_leaderboard.scores
-                    WHERE game_id = %s AND user_name = %s
-                    ORDER BY score DESC
-                    LIMIT %s;
-                    """,
-                    (game_id, user_name, limit),
-                )
-                rows = cur.fetchall()
-        return JSONResponse([{r[0]: r[1]} for r in rows])
-
-    # 4. addUser (POST JSON payload)
     try:
-        data = await request.json()
+        payload = await request.json()
     except Exception:
-        data = {}
+        payload = {}
 
-    if isinstance(data, dict) and data.get("action") == "addUser":
-        email = (data.get("email") or "").strip()
-        game_name = (data.get("gameName") or "").strip()
-        if not email or not game_name:
+    if isinstance(payload, dict) and payload.get("action") == "addUser":
+        email = (payload.get("email") or "").strip()
+        game_name = (payload.get("gameName") or "").strip()
+        if not (email and game_name):
             return PlainTextResponse("Invalid params")
-
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                # Checks for an existing gameID
-                cur.execute(
-                    """
-                    SELECT game_id
-                    FROM simple_leaderboard.users
-                    WHERE email = %s AND game_name = %s;
-                    """,
-                    (email, game_name),
-                )
-                existing = cur.fetchone()
-                if existing:
-                    return JSONResponse(existing[0])
-
-                cur.execute(
-                    """
-                    INSERT INTO simple_leaderboard.users (email, game_name)
-                    VALUES (%s, %s)
-                    RETURNING game_id;
-                    """,
-                    (email, game_name),
-                )
-                new_row = cur.fetchone()
-            conn.commit()
-        return JSONResponse(new_row[0] if new_row else 1)
+        return JSONResponse(record_new_user(email, game_name))
 
     return PlainTextResponse("Invalid params")

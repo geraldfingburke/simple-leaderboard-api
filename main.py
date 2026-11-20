@@ -155,7 +155,7 @@ def parse_positive_count(count_param: str | None, default: int = 10) -> int:
 
 
 def is_within_varchar_limit(value: str | None, max_length: int = VARCHAR_MAX_LENGTH) -> bool:
-    return bool(value) and len(value) <= max_length
+    return bool(value) and len(value) <= max_length and "\x00" not in value
 
 
 def extract_bounded_string(
@@ -165,7 +165,7 @@ def extract_bounded_string(
     if not isinstance(value, str):
         return None
     trimmed = value.strip()
-    if not trimmed or len(trimmed) > max_length:
+    if not is_within_varchar_limit(trimmed, max_length):
         return None
     return trimmed
 
